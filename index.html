@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Physics Sandbox - Gravity Playground</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        h1 {
+            color: #eee;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        .controls {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        #spawnBtn {
+            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+            color: white;
+        }
+        #chaosBtn {
+            background: linear-gradient(135deg, #e17055 0%, #d63031 100%);
+            color: white;
+        }
+        #chaosBtn.active {
+            background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+            animation: pulse 0.5s infinite alternate;
+        }
+        @keyframes pulse {
+            from { box-shadow: 0 0 10px #a855f7; }
+            to { box-shadow: 0 0 25px #7c3aed; }
+        }
+        #clearBtn {
+            background: linear-gradient(135deg, #636e72 0%, #2d3436 100%);
+            color: white;
+        }
+        canvas {
+            border: 3px solid #444;
+            border-radius: 12px;
+            background: linear-gradient(180deg, #2d3436 0%, #000 100%);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        .info {
+            color: #888;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎮 Gravity Playground</h1>
+    <div class="controls">
+        <button id="spawnBtn">Spawn Object</button>
+        <button id="chaosBtn">🌀 Chaos Mode</button>
+        <button id="clearBtn">Clear All</button>
+    </div>
+    <canvas id="canvas" width="900" height="600"></canvas>
+    <p class="info">Click and drag objects to throw them!</p>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const spawnBtn = document.getElementById('spawnBtn');
+        const chaosBtn = document.getElementById('chaosBtn');
+        const clearBtn = document.getElementById('clearBtn');
+
+        // Physics constants
+        let gravity = 0.5;
+        const friction = 0.99;
+        const bounceFactor = 0.7;
+        const floorY = canvas.height - 10;
+
+        // Objects array
+        let objects = [];
+
+        // Drag state
+        let draggedObject = null;
+        let dragOffset = { x: 0, y: 0 };
+        let lastMousePos = { x: 0, y: 0 };
+        let mouseVelocity = { x: 0, y: 0 };
+
+        // Chaos mode state
+        let chaosMode = false;
+
+        // Object class
+        class PhysicsObject {
+            constructor(x, y, type) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 4;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.type = type; // 'circle' or 'square'
+                this.size = 20 + Math.random() * 30;
+                this.mass = this.size * 0.1;
+                this.color = this.randomColor();
+                this.rotation = 0;
+                this.angularVel = (Math.random() - 0.5) * 0.1;
+            }
+
+            randomColor() {
+                const colors = [
+                    '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4',
+                    '#ffeaa7', '#dfe6e9', '#fd79a8', '#a29bfe',
+                    '#00b894', '#e17055', '#74b9ff', '#55efc4'
+                ];
+                return colors[Math.floor(Math.random() * colors.length)];
+            }
+
+            update() {
+                if (this === draggedObject) return;
+
+                // Apply gravity
+                this.vy += gravity;
+
+                // Apply velocity
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Apply friction
+                this.vx *= friction;
+                this.vy *= friction;
+
+                // Update rotation
+                this.rotation += this.angularVel;
+                this.angularVel *= 0.99;
+
+                // Floor collision
+                const bottom = this.y + this.size;
+                const top = this.y - this.size;
+
+                if (gravity > 0 && bottom > floorY) {
+                    this.y = floorY - this.size;
+                    this.vy *= -bounceFactor;
+                    this.angularVel += this.vx * 0.01;
+                }
+
+                // Ceiling collision (for reversed gravity)
+                if (gravity < 0 && top < 10) {
+                    this.y = 10 + this.size;
+                    this.vy *= -bounceFactor;
+                    this.angularVel += this.vx * 0.01;
+                }
+
+                // Wall collisions
+                if (this.x - this.size < 0) {
+                    this.x = this.size;
+                    this.vx *= -bounceFactor;
+                }
+                if (this.x + this.size > canvas.width) {
+                    this.x = canvas.width - this.size;
+                    this.vx *= -bounceFactor;
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+
+                // Shadow
+                ctx.shadowColor = 'rgba(0,0,0,0.3)';
+                ctx.shadowBlur = 10;
+                ctx.shadowOffsetX = 3;
+                ctx.shadowOffsetY = 3;
+
+                ctx.fillStyle = this.color;
+                ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+                ctx.lineWidth = 2;
+
+                if (this.type === 'circle') {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                    // Add highlight
+                    ctx.beginPath();
+                    ctx.arc(-this.size * 0.3, -this.size * 0.3, this.size * 0.2, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                    ctx.fill();
+                } else {
+                    ctx.fillRect(-this.size, -this.size, this.size * 2, this.size * 2);
+                    ctx.strokeRect(-this.size, -this.size, this.size * 2, this.size * 2);
+                    // Add highlight
+                    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+                    ctx.fillRect(-this.size, -this.size, this.size * 2, this.size * 0.5);
+                }
+
+                ctx.restore();
+            }
+
+            containsPoint(px, py) {
+                if (this.type === 'circle') {
+                    const dx = px - this.x;
+                    const dy = py - this.y;
+                    return Math.sqrt(dx * dx + dy * dy) <= this.size;
+                } else {
+                    return px >= this.x - this.size && px <= this.x + this.size &&
+                           py >= this.y - this.size && py <= this.y + this.size;
+                }
+            }
+
+            collidesWith(other) {
+                const dx = other.x - this.x;
+                const dy = other.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const minDist = this.size + other.size;
+                return distance < minDist;
+            }
+
+            resolveCollision(other) {
+                const dx = other.x - this.x;
+                const dy = other.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const minDist = this.size + other.size;
+
+                if (distance === 0) return;
+
+                // Normalize collision vector
+                const nx = dx / distance;
+                const ny = dy / distance;
+
+                // Separate objects
+                const overlap = minDist - distance;
+                const separationX = (overlap / 2) * nx;
+                const separationY = (overlap / 2) * ny;
+
+                this.x -= separationX;
+                this.y -= separationY;
+                other.x += separationX;
+                other.y += separationY;
+
+                // Calculate relative velocity
+                const dvx = this.vx - other.vx;
+                const dvy = this.vy - other.vy;
+                const dvn = dvx * nx + dvy * ny;
+
+                // Don't resolve if objects are moving apart
+                if (dvn > 0) return;
+
+                // Calculate impulse
+                const impulse = (-(1 + bounceFactor) * dvn) / (1 / this.mass + 1 / other.mass);
+
+                // Apply impulse
+                this.vx += (impulse / this.mass) * nx;
+                this.vy += (impulse / this.mass) * ny;
+                other.vx -= (impulse / other.mass) * nx;
+                other.vy -= (impulse / other.mass) * ny;
+
+                // Add some spin
+                this.angularVel += (impulse / this.mass) * 0.01;
+                other.angularVel -= (impulse / other.mass) * 0.01;
+            }
+        }
+
+        // Spawn initial objects
+        function spawnObject() {
+            const type = Math.random() > 0.5 ? 'circle' : 'square';
+            const x = 100 + Math.random() * (canvas.width - 200);
+            const y = 50 + Math.random() * 100;
+            objects.push(new PhysicsObject(x, y, type));
+        }
+
+        // Spawn initial set of objects
+        for (let i = 0; i < 8; i++) {
+            spawnObject();
+        }
+
+        // Handle collisions between all objects
+        function handleCollisions() {
+            for (let i = 0; i < objects.length; i++) {
+                for (let j = i + 1; j < objects.length; j++) {
+                    if (objects[i].collidesWith(objects[j])) {
+                        objects[i].resolveCollision(objects[j]);
+                    }
+                }
+            }
+        }
+
+        // Draw floor
+        function drawFloor() {
+            const gradient = ctx.createLinearGradient(0, floorY, 0, canvas.height);
+            gradient.addColorStop(0, '#444');
+            gradient.addColorStop(1, '#222');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, floorY, canvas.width, canvas.height - floorY);
+        }
+
+        // Draw ceiling (visible during chaos mode)
+        function drawCeiling() {
+            if (chaosMode) {
+                const gradient = ctx.createLinearGradient(0, 0, 0, 10);
+                gradient.addColorStop(0, '#222');
+                gradient.addColorStop(1, '#444');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, 10);
+            }
+        }
+
+        // Main game loop
+        function gameLoop() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw environment
+            drawFloor();
+            drawCeiling();
+
+            // Update and draw objects
+            objects.forEach(obj => obj.update());
+            handleCollisions();
+            objects.forEach(obj => obj.draw());
+
+            // Draw drag indicator
+            if (draggedObject) {
+                ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.arc(draggedObject.x, draggedObject.y, draggedObject.size + 10, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Mouse/touch event handlers
+        function getEventPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        }
+
+        function handleStart(e) {
+            e.preventDefault();
+            const pos = getEventPos(e);
+
+            // Find object under cursor (reverse order to get topmost)
+            for (let i = objects.length - 1; i >= 0; i--) {
+                if (objects[i].containsPoint(pos.x, pos.y)) {
+                    draggedObject = objects[i];
+                    dragOffset.x = pos.x - draggedObject.x;
+                    dragOffset.y = pos.y - draggedObject.y;
+                    lastMousePos = { ...pos };
+                    mouseVelocity = { x: 0, y: 0 };
+
+                    // Move to end of array (draw on top)
+                    objects.splice(i, 1);
+                    objects.push(draggedObject);
+                    break;
+                }
+            }
+        }
+
+        function handleMove(e) {
+            e.preventDefault();
+            if (!draggedObject) return;
+
+            const pos = getEventPos(e);
+
+            // Track velocity for throwing
+            mouseVelocity.x = pos.x - lastMousePos.x;
+            mouseVelocity.y = pos.y - lastMousePos.y;
+            lastMousePos = { ...pos };
+
+            // Update object position
+            draggedObject.x = pos.x - dragOffset.x;
+            draggedObject.y = pos.y - dragOffset.y;
+            draggedObject.vx = 0;
+            draggedObject.vy = 0;
+        }
+
+        function handleEnd(e) {
+            e.preventDefault();
+            if (draggedObject) {
+                // Apply throw velocity
+                draggedObject.vx = mouseVelocity.x * 1.5;
+                draggedObject.vy = mouseVelocity.y * 1.5;
+                draggedObject = null;
+            }
+        }
+
+        // Mouse events
+        canvas.addEventListener('mousedown', handleStart);
+        canvas.addEventListener('mousemove', handleMove);
+        canvas.addEventListener('mouseup', handleEnd);
+        canvas.addEventListener('mouseleave', handleEnd);
+
+        // Touch events
+        canvas.addEventListener('touchstart', handleStart);
+        canvas.addEventListener('touchmove', handleMove);
+        canvas.addEventListener('touchend', handleEnd);
+
+        // Button handlers
+        spawnBtn.addEventListener('click', spawnObject);
+
+        clearBtn.addEventListener('click', () => {
+            objects = [];
+        });
+
+        chaosBtn.addEventListener('click', () => {
+            if (chaosMode) return; // Already in chaos mode
+
+            chaosMode = true;
+            chaosBtn.classList.add('active');
+            chaosBtn.textContent = '⬆️ CHAOS!';
+
+            // Reverse gravity
+            gravity = -0.5;
+
+            // Give objects a boost upward
+            objects.forEach(obj => {
+                obj.vy -= 10;
+            });
+
+            // Restore after 3 seconds
+            setTimeout(() => {
+                gravity = 0.5;
+                chaosMode = false;
+                chaosBtn.classList.remove('active');
+                chaosBtn.textContent = '🌀 Chaos Mode';
+            }, 3000);
+        });
+
+        // Start the game loop
+        gameLoop();
+    </script>
+</body>
+</html>
